@@ -1,10 +1,8 @@
 
 __author__ = 'Remi Batist / AXEZ ICT Solutions'
-__version__ = '2.3'
+__version__ = '2.5'
 __comments__= 'remi.batist@axez.nl'
-###     Deploying (IRF-)(iMC-)config and software on HP5130 24/48 Ports PoE Switches #########
-
-###	Support for models JG936A & JG937A
+###     Deploying (IRF-)(iMC-)config and software on HP5130 24/48 Ports (PoE) Switches #########
 
 ###     version 1.0: first release (support for 6 members)
 ###     version 1.1: adding support for 9 members
@@ -16,6 +14,8 @@ __comments__= 'remi.batist@axez.nl'
 ###	Version 2.3: Changed SNMP Community to support iMC version 7.2
 ###			imc_snmpread = 'iMCV5read' -> 'iMCread'
 ###			imc_snmpwrite = 'iMCV5write' -> 'iMCwrite'
+###	Version 2.4: Supporting latest firmware
+###	Version 2.5: Adding optional files to download to the switch
 ###
 
 ###	How to use de script;
@@ -67,14 +67,15 @@ __comments__= 'remi.batist@axez.nl'
 
 ### 	You can change this or other custom settings below when needed
 
-
 #### Custom settings
-tftpsrv = "10.0.1.100"
+tftpsrv = "192.168.0.1"
 imc_bootfile = "autocfg_startup.cfg"
+optional_file1 = "" # "myscript.py" for example
+optional_file2 = ""
 imc_snmpread = 'iMCread'
 imc_snmpwrite = 'iMCwrite'
-bootfile = "5130ei-cmw710-boot-r3109p05.bin"
-sysfile = "5130ei-cmw710-system-r3109p05.bin"
+bootfile = "5130ei-cmw710-boot-r3111p07.bin"
+sysfile = "5130ei-cmw710-system-r3111p07.bin"
 poefile = "S5130EI-POE-145.bin"
 irf_48_port_1 = "/0/49"
 irf_48_port_2 = "/0/51"
@@ -100,210 +101,247 @@ termios.tcsendbreak(fd,0)
 
 #### Notification for Starting
 print (('\n' * 5) + "Starting script for deploying IRF-config and software on 5130 switches\n"
-	"\nPlease wait while getting the current settings...."
-	)
+        "\nPlease wait while getting the current versions and settings...."
+        )
 
 #### Getting Current settings and versions
 def SwitchInput():
-	sys.stdout.write("\r%d%%" % 0)
-	sys.stdout.flush()
-	#### Get Current IRF Member
-	get_memberid = comware.CLI('display irf link', False).get_output()
-	for line in get_memberid:
-		if 'Member' in line:
-			s1 = line.rindex('Member') + 7
-			e1 = len(line)
-			memberid = line[s1:e1]
-	sys.stdout.write("\r%d%%" % 25)
-	sys.stdout.flush()
-	#### Get SwitchModel
-	get_model = comware.CLI('display int ten brief', False).get_output()
-	for line in get_model:
-		if '/0/28' in line:
-			model = "24 Ports"
-		if '/0/52' in line:
-			model = "48 Ports"
-	sys.stdout.write("\r%d%%" % 50)
-	sys.stdout.flush()
-	#### Get Mac-address
-	get_mac_address = comware.CLI('dis device manuinfo | in MAC_ADDRESS', False).get_output()
-	for line in get_mac_address:
-		if 'MAC_ADDRESS' in line:
-			s2 = line.rindex('MAC_ADDRESS') + 23
-			e2 = len(line)
-			mac_address = line[s2:e2]
-	#### Get Switch Software Version
-	get_sw_version = comware.CLI('display version | in Software', False).get_output()
-	sw_version = get_sw_version[1]
-	sys.stdout.write("\r%d%%" % 75)
-	sys.stdout.flush()
-	#### Get PoE Software Version
-	comware.CLI('system ; poe enable pse ' + str(poe_pse_numbers[memberid]), False).get_output()
-	get_poe_version = comware.CLI('display poe pse | in Software', False).get_output()
+    sys.stdout.write("\r%d%%" % 0)
+    sys.stdout.flush()
+    #### Get Current IRF Member
+    get_memberid = comware.CLI('display irf link', False).get_output()
+    for line in get_memberid:
+        if 'Member' in line:
+            s1 = line.rindex('Member') + 7
+            e1 = len(line)
+            memberid = line[s1:e1]
+    sys.stdout.write("\r%d%%" % 25)
+    sys.stdout.flush()
+    #### Get SwitchModel
+    get_model = comware.CLI('display int ten brief', False).get_output()
+    for line in get_model:
+        if '/0/28' in line:
+            model = "24 Ports"
+        if '/0/52' in line:
+            model = "48 Ports"
+    sys.stdout.write("\r%d%%" % 50)
+    sys.stdout.flush()
+    #### Get Mac-address
+    get_mac_address = comware.CLI('dis device manuinfo | in MAC_ADDRESS', False).get_output()
+    for line in get_mac_address:
+        if 'MAC_ADDRESS' in line:
+            s2 = line.rindex('MAC_ADDRESS') + 23
+            e2 = len(line)
+            mac_address = line[s2:e2]
+    #### Get Switch Software Version
+    get_sw_version = comware.CLI('display version | in Software', False).get_output()
+    sw_version = get_sw_version[1]
+    sys.stdout.write("\r%d%%" % 75)
+    sys.stdout.flush()
+    #### Get PoE Software Version
+    try:
+        comware.CLI('system ; poe enable pse ' + str(poe_pse_numbers[memberid]), False).get_output()
+    except SystemError:
+        poe_version = 'N/A'
+    try:
+        comware.CLI('system ; int gig' + memberid + '/0/1 ; poe enable ', False).get_output()
+    except SystemError:
+        poe_version = 'N/A'
+    try:
+        get_poe_version = comware.CLI('display poe pse | in Software', False).get_output()
         for line in get_poe_version:
-		if 'Software' in line:
-			s3 = line.rindex('Software') + 31
-			e3 = len(line)
-			poe_version = line[s3:e3]
-	sys.stdout.write("\r%d%%\n" % 100)
-	sys.stdout.flush()
-	return memberid, model, mac_address, sw_version, poe_version
+            if 'Software' in line:
+                s3 = line.rindex('Software') + 31
+                e3 = len(line)
+                poe_version = line[s3:e3]
+    except SystemError:
+        poe_version = 'N/A'
+    sys.stdout.write("\r%d%%\n" % 100)
+    sys.stdout.flush()
+    return memberid, model, mac_address, sw_version, poe_version
 
 
 #### Startmenu for deploying the switch
 def StartMenu(memberid, model, mac_address, sw_version, poe_version):
-	checkbox1 = ''
-	checkbox2 = ''
-	checkbox3 = ''
-	checkbox4 = ''
-	checkbox5 = ''
-	set_memberid = ''
-	Menu = True
-	while Menu:
-		print "\nCurrent Switch Information:"
-		print "  Current Switch Model         " + str(model)
-		print "  Current MAC-Address          " + str(mac_address)
-		print "  Current Software Version     " + str(sw_version)
-		print "  Current PoE Version          " + str(poe_version)
-		print "  Current Member ID            " + str(memberid)
-		print "  Newly chosen Member ID       " + str(set_memberid)
-		print "\nFiles Ready for installation:"
-		print "  Switch Software File         " + str(sysfile)
-		print "  Switch PoE Software File     " + str(poefile)
-		print "\n\n%-50s %-1s %-1s %-1s" % ("1.Update Switch Firmware", "[", checkbox1, "]")
-		print "%-50s %-1s %-1s %-1s" % ("2.Update PoE Firmware", "[", checkbox2, "]")
-		print "%-50s %-1s %-1s %-1s" % ("3.Change IRF MemberID Only", "[", checkbox3, "]")
-		print "%-50s %-1s %-1s %-1s" % ("4.Change IRF MemberID and set IRF-Port-config", "[", checkbox4, "]")
-		print "%-50s %-1s %-1s %-1s" % ("5.Trigger iMC for deployment", "[", checkbox5, "]")
-		print "%-50s " % ("6.Run selection")
-		print "%-50s " % ("7.Restart Automatic Configuration")
-		print "%-50s " % ("8.Exit/Quit and reboot")
-		ans=raw_input("\nWhat would you like to do? ")
-		if ans=="1":
-			checkbox1 = "X"
-		elif ans=="2":
-			checkbox2 = "X"
-		elif ans=="3":
-			set_memberid = raw_input("Enter new Member-ID: ")
-			checkbox3 = "X"
-		elif ans=="4":
-			set_memberid = raw_input("Enter new Member-ID: ")
-			checkbox3 = "X"
-			checkbox4 = "X"
-			checkbox5 = ""
-		elif ans=="5":
-			checkbox4 = ""
-			checkbox5 = "X"
-		elif ans=="6":
-			Menu = False
-		elif ans=="7":
-			print "\nQuiting script...\n"
-			sys.exit()
-		elif ans=="8":
-			print "\nQuiting script and rebooting...\n"
-			comware.CLI("reboot force")
-			sys.exit()
-		else:
-			print("\n Not Valid Choice Try again")
-	return checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, set_memberid
+    checkbox1 = checkbox2 = checkbox3 = checkbox4 = checkbox5 = checkbox6 = set_memberid = ''
+    Menu = True
+    while Menu:
+        print   "\n" * 5 + "Current switch information:",\
+                "\n  Current switch model         " + str(model),\
+                "\n  Current MAC-address          " + str(mac_address),\
+                "\n  Current software version     " + str(sw_version),\
+                "\n  Current PoE version          " + str(poe_version),\
+                "\n  Current Member-ID            " + str(memberid),\
+                "\n  Newly chosen Member-ID       " + str(set_memberid),\
+                "\n" * 2 + "Files ready for installation:",\
+                "\n  Switch Boot-file             " + str(bootfile),\
+                "\n  Switch System-file           " + str(sysfile),\
+                "\n  Switch PoE software-file     " + str(poefile),\
+                "\n" * 2 + "%-50s %-1s %-1s %-1s" % ("1.Update switch firmware", "[", checkbox1, "]"),\
+                "\n%-50s %-1s %-1s %-1s" % ("2.Update PoE firmware", "[", checkbox2, "]"),\
+                "\n%-50s %-1s %-1s %-1s" % ("3.Download optional files", "[", checkbox3, "]"),\
+                "\n%-50s %-1s %-1s %-1s" % ("4.Change IRF Member-ID only", "[", checkbox4, "]"),\
+                "\n%-50s %-1s %-1s %-1s" % ("5.Change IRF Member-ID and set IRF-port-config", "[", checkbox5, "]"),\
+                "\n%-50s %-1s %-1s %-1s" % ("6.Trigger iMC for deployment", "[", checkbox6, "]"),\
+                "\n%-50s " % ("7.Run selection"),\
+                "\n%-50s " % ("8.Exit/Quit and start CLI"),\
+                "\n%-50s " % ("9.Exit/Quit and reboot")
+        ans=raw_input("\nWhat would you like to do? ")
+        if ans=="1":
+            checkbox1 = "X"
+        elif ans=="2":
+            checkbox2 = "X"
+        elif ans=="3":
+            checkbox3 = "X"
+        elif ans=="4":
+            set_memberid = raw_input("Enter new Member-ID: ")
+            checkbox4 = "X"
+        elif ans=="5":
+            set_memberid = raw_input("Enter new Member-ID: ")
+            checkbox4 = "X"
+            checkbox5 = "X"
+            checkbox6 = ""
+        elif ans=="6":
+            checkbox5 = ""
+            checkbox6 = "X"
+        elif ans=="7":
+            Menu = False
+        elif ans=="8":
+            print "\nQuiting script, starting CLI...\n"
+            sys.exit()
+        elif ans=="9":
+            print "\nQuiting script and rebooting...\n"
+            comware.CLI("reboot force")
+            sys.exit()
+        else:
+            print("\n Not Valid Choice Try again")
+    return checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, checkbox6 ,set_memberid
 
 #### Switch software update
 def SoftwareUpdate(checkbox1):
-	if checkbox1 == "X":
-		print "\nUpdating Switch Firmware....\n"
-		try:
-			comware.CLI("tftp " + tftpsrv + " get " + bootfile)
-			print "\nSwitch Firmware download successful\n"
-		except SystemError as s:
-			print "\nSwitch Firmware download successful\n"
-		try:
-			comware.CLI("tftp " + tftpsrv + " get " + sysfile)
-			print "\nSwitch Firmware download successful\n"
-		except SystemError as s:
-			print "\nSwitch Firmware download successful\n"
-		try:
-			comware.CLI("boot-loader file boot flash:/" + bootfile + " system flash:/" + sysfile + " all main")
-			print "\nConfiguring boot-loader successful\n"
-		except SystemError as s:
-			print "\nChange bootloader successful\n"
-	else:
-		print "\nSkipping Switch Firmware update"
+    if checkbox1 == "X":
+        print "\nUpdating Switch Firmware....\n"
+        try:
+            comware.CLI("tftp " + tftpsrv + " get " + bootfile)
+            print "\nSwitch Firmware download successful\n"
+        except SystemError as s:
+            print "\nSwitch Firmware download successful\n"
+        try:
+            comware.CLI("tftp " + tftpsrv + " get " + sysfile)
+            print "\nSwitch Firmware download successful\n"
+        except SystemError as s:
+            print "\nSwitch Firmware download successful\n"
+        try:
+            comware.CLI("boot-loader file boot flash:/" + bootfile + " system flash:/" + sysfile + " all main")
+            print "\nConfiguring boot-loader successful\n"
+        except SystemError as s:
+            print "\nChange bootloader successful\n"
+    else:
+        print "\nSkipping Switch Firmware update"
 
 #### Switch poe update
 def PoEUpdate(checkbox2, memberid):
-	if checkbox2 == 'X':
-		try:
-			comware.CLI("tftp " + tftpsrv + " get " + poefile)
-			print "\nPoE Firmware download successful\n"
-		except SystemError as s:
-			print "\nPoE Firmware download successful\n"
-		try:
-			print "\nUpdating PoE Firmware..."
-			comware.CLI("system ; poe update full " + poefile + " pse " + str(poe_pse_numbers[memberid]))
-			print "\nPoE-Update successful\n"
-		except SystemError as s:
-			print "\nSkipping PoE-Update, member not available\n"
-	else:
-		print "\nSkipping PoE firmware update"
+    if checkbox2 == 'X':
+        print "\nUpdating PoE Firmware....\n"
+        try:
+            comware.CLI("tftp " + tftpsrv + " get " + poefile)
+            print "\nPoE Firmware download successful\n"
+        except SystemError as s:
+            print "\nPoE Firmware download successful\n"
+        try:
+            print "\nUpdating PoE Firmware..."
+            comware.CLI("system ; poe update full " + poefile + " pse " + str(poe_pse_numbers[memberid]))
+            print "\nPoE-Update successful\n"
+        except SystemError as s:
+            print "\nSkipping PoE-Update, member not available\n"
+    else:
+        print "\nSkipping PoE firmware update"
 
+
+#### Download optional files
+
+def OptFiles(checkbox3):
+    if checkbox3 == 'X':
+        print "\nDownloading optional files..."
+        if optional_file1:
+            comware.CLI('tftp ' + tftpsrv + ' get ' + optional_file1)
+        if optional_file2:
+            comware.CLI('tftp ' + tftpsrv + ' get ' + optional_file2)
+    else:
+        print "\nSkipping optional files"
 
 #### Change IRF MemberID
-def ChangeIRFMemberID(memberid, checkbox3, set_memberid):
-	if checkbox3 == 'X':
-		print "\nChanging IRF MemberID..."
-		comware.CLI("system ; irf member " + memberid + " renumber " + set_memberid)
-	else:
-		print "\nskipping IRF MemberID Change"
+def ChangeIRFMemberID(memberid, checkbox4, set_memberid):
+    if checkbox4 == 'X':
+        print "\nChanging IRF MemberID..."
+        comware.CLI("system ; irf member " + memberid + " renumber " + set_memberid)
+    else:
+        print "\nskipping IRF MemberID Change"
 
 
 #### Set IRFPorts in startup config
-def SetIRFPorts(memberid, model, checkbox3, checkbox4, set_memberid):
-	if checkbox4 == 'X':
-		if model == "48 Ports":
-			print ('\n' * 5) + 'Deploying IRF-Port-config for 48 ports switch...\n'
-		if model == "24 Ports":
-			print ('\n' * 5) + 'Deploying IRF-Port-config for 24 ports switch...\n'
-		set_prio = irf_prio_numbers[set_memberid]
-		startup_file = open('flash:/startup.cfg', 'w')
-		startup_file.write("\nirf member "+ set_memberid +" priority "+ set_prio + "\n")
-		if model == "48 Ports":
-			startup_file.write("\nirf-port "+ set_memberid +"/1")
-			startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_48_port_1 + '\n')
-			startup_file.write("\nirf-port "+ set_memberid +"/2")
-			startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_48_port_2 + '\n')
-		if model == "24 Ports":
-			startup_file.write("\nirf-port "+ set_memberid +"/1")
-			startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_24_port_1 + '\n')
-			startup_file.write("\nirf-port "+ set_memberid +"/2")
-			startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_24_port_2 + '\n')
-		startup_file.close()
-		comware.CLI("startup saved-configuration startup.cfg")
-		comware.CLI("reboot force")
-	else:
-		print "\nSkipping IRF-Port-config"
+def SetIRFPorts(memberid, model, checkbox5, set_memberid):
+    if checkbox5 == 'X':
+        if model == "48 Ports":
+            print ('\n' * 5) + 'Deploying IRF-Port-config for 48 ports switch...\n'
+        if model == "24 Ports":
+            print ('\n' * 5) + 'Deploying IRF-Port-config for 24 ports switch...\n'
+        set_prio = irf_prio_numbers[set_memberid]
+        startup_file = open('flash:/startup.cfg', 'w')
+        startup_file.write("\nirf member "+ set_memberid +" priority "+ set_prio + "\n")
+        if model == "48 Ports":
+            startup_file.write("\nirf-port "+ set_memberid +"/1")
+            startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_48_port_1 + '\n')
+            startup_file.write("\nirf-port "+ set_memberid +"/2")
+            startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_48_port_2 + '\n')
+        if model == "24 Ports":
+            startup_file.write("\nirf-port "+ set_memberid +"/1")
+            startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_24_port_1 + '\n')
+            startup_file.write("\nirf-port "+ set_memberid +"/2")
+            startup_file.write("\nport group interface Ten-GigabitEthernet"+ set_memberid + irf_24_port_2 + '\n')
+        startup_file.close()
+        comware.CLI("startup saved-configuration startup.cfg")
+    else:
+        print "\nSkipping IRF-Port-config"
 
 #### Trigger iMC for auto-deployment
-def TriggeriMC(checkbox5):
-	if checkbox5 == 'X':
-		print "\nTriggering iMC for deploy, please wait..."
-		comware.CLI('system ; snmp-agent ; snmp-agent community read ' + imc_snmpread + ' ; snmp-agent community write ' + imc_snmpwrite + ' ; snmp-agent sys-info version all', False)
-		comware.CLI('tftp ' + tftpsrv + ' get ' + imc_bootfile + ' tmp.cfg')
-		print "\nSuccess, waiting for config..."
-		time.sleep(300)
-	else:
-		print "\nSkipping iMC deploy"
-			
-		
+def TriggeriMC(checkbox6):
+    if checkbox6 == 'X':
+        print "\nTriggering iMC for deploy, please wait..."
+        comware.CLI('system ; snmp-agent ; snmp-agent community read ' + imc_snmpread + ' ; snmp-agent community write ' + imc_snmpwrite + ' ; snmp-agent sys-info version all', False)
+        comware.CLI('tftp ' + tftpsrv + ' get ' + imc_bootfile + ' tmp.cfg')
+        for s in range(300):
+                sys.stdout.write("\r%s%s%s" % ("iMC Triggered successfully, waiting for config...", str(300 - s), " seconds remaining"))
+                sys.stdout.flush()
+                time.sleep( 1 )
+    else:
+        print "\nSkipping iMC deploy"
+
+#### Reboot in 10 Seconds
+def Reboot():
+        for s in range(10):
+            sys.stdout.write("\r%s%s%s" % ("Rebooting in: ", str(10 - s), " seconds..."))
+            sys.stdout.flush()
+            time.sleep( 1 )
+        print "Now rebooting, please wait..."
+        comware.CLI("reboot force", False)
+
 #### Define main function
 def main():
-	(memberid, model, mac_address, sw_version, poe_version) = SwitchInput()
-	(checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, set_memberid) = StartMenu(memberid, model, mac_address, sw_version, poe_version)
-	SoftwareUpdate(checkbox1)
-	PoEUpdate(checkbox2, memberid)
-	ChangeIRFMemberID(memberid, checkbox3, set_memberid)
-	SetIRFPorts(memberid, model, checkbox3, checkbox4, set_memberid)
-	TriggeriMC(checkbox5)
-			
+    try:
+        (memberid, model, mac_address, sw_version, poe_version) = SwitchInput()
+        (checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, checkbox6 ,set_memberid) = StartMenu(memberid, model, mac_address, sw_version, poe_version)
+        SoftwareUpdate(checkbox1)
+        PoEUpdate(checkbox2, memberid)
+        OptFiles(checkbox3)
+        ChangeIRFMemberID(memberid, checkbox4, set_memberid)
+        SetIRFPorts(memberid, model, checkbox5, set_memberid)
+        TriggeriMC(checkbox6)
+        Reboot()
+    except (EOFError, KeyboardInterrupt):
+        print "\n\nquiting script!!!...."
+        quit()
+
 if __name__ == "__main__":
-	main()
+    main()
 
