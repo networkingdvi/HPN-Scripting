@@ -1,6 +1,6 @@
 
 __author__ = 'Remi Batist / AXEZ ICT Solutions'
-__version__ = '2.5'
+__version__ = '2.6'
 __comments__= 'remi.batist@axez.nl'
 ###     Deploying (IRF-)(iMC-)config and software on HP5130 24/48 Ports (PoE) Switches #########
 
@@ -16,6 +16,7 @@ __comments__= 'remi.batist@axez.nl'
 ###			imc_snmpwrite = 'iMCV5write' -> 'iMCwrite'
 ###	Version 2.4: Supporting latest firmware
 ###	Version 2.5: Adding optional files to download to the switch
+###     Version 2.6: Supporting older firmware releases
 ###
 
 ###	How to use de script;
@@ -83,6 +84,7 @@ irf_24_port_1 = "/0/25"
 irf_24_port_2 = "/0/27"
 poe_pse_numbers = {"1":"4","2":"7","3":"10","4":"13","5":"16","6":"19","7":"22","8":"25","9":"26"}
 irf_prio_numbers = {"1":"32","2":"31","3":"30","4":"29","5":"28","6":"27","7":"26","8":"25","9":"24"}
+
 
 #### Importing python modules
 import comware
@@ -208,11 +210,11 @@ def StartMenu(memberid, model, mac_address, sw_version, poe_version):
             Menu = False
         elif ans=="8":
             print "\nQuiting script, starting CLI...\n"
-            sys.exit()
+            quit()
         elif ans=="9":
             print "\nQuiting script and rebooting...\n"
             comware.CLI("reboot force")
-            sys.exit()
+            quit()
         else:
             print("\n Not Valid Choice Try again")
     return checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, checkbox6 ,set_memberid
@@ -235,6 +237,7 @@ def SoftwareUpdate(checkbox1):
             comware.CLI("boot-loader file boot flash:/" + bootfile + " system flash:/" + sysfile + " all main")
             print "\nConfiguring boot-loader successful\n"
         except SystemError as s:
+            print s
             print "\nChange bootloader successful\n"
     else:
         print "\nSkipping Switch Firmware update"
@@ -263,10 +266,16 @@ def PoEUpdate(checkbox2, memberid):
 def OptFiles(checkbox3):
     if checkbox3 == 'X':
         print "\nDownloading optional files..."
-        if optional_file1:
-            comware.CLI('tftp ' + tftpsrv + ' get ' + optional_file1)
-        if optional_file2:
-            comware.CLI('tftp ' + tftpsrv + ' get ' + optional_file2)
+    	try:
+            if optional_file1:
+                comware.CLI('tftp ' + tftpsrv + ' get ' + optional_file1)
+    	except SystemError as s:
+    		print "\nDownload file successful\n"
+        try:
+            if optional_file2:
+                comware.CLI('tftp ' + tftpsrv + ' get ' + optional_file2)
+    	except SystemError as s:
+    		print "\nDownload file successful\n"
     else:
         print "\nSkipping optional files"
 
@@ -309,7 +318,10 @@ def TriggeriMC(checkbox6):
     if checkbox6 == 'X':
         print "\nTriggering iMC for deploy, please wait..."
         comware.CLI('system ; snmp-agent ; snmp-agent community read ' + imc_snmpread + ' ; snmp-agent community write ' + imc_snmpwrite + ' ; snmp-agent sys-info version all', False)
-        comware.CLI('tftp ' + tftpsrv + ' get ' + imc_bootfile + ' tmp.cfg')
+        try:
+    		comware.CLI('tftp ' + tftpsrv + ' get ' + imc_bootfile + ' tmp.cfg')
+	except SystemError as s:
+    		print "\nDownload file successful\n"
         for s in range(300):
                 sys.stdout.write("\r%s%s%s" % ("iMC Triggered successfully, waiting for config...", str(300 - s), " seconds remaining"))
                 sys.stdout.flush()
@@ -317,14 +329,11 @@ def TriggeriMC(checkbox6):
     else:
         print "\nSkipping iMC deploy"
 
-#### Reboot in 10 Seconds
+#### Reboot
 def Reboot():
-        for s in range(10):
-            sys.stdout.write("\r%s%s%s" % ("Rebooting in: ", str(10 - s), " seconds..."))
-            sys.stdout.flush()
-            time.sleep( 1 )
-        print "Now rebooting, please wait..."
-        comware.CLI("reboot force", False)
+	print "Now rebooting, please wait..."
+	comware.CLI("reboot force")
+	quit()
 
 #### Define main function
 def main():
