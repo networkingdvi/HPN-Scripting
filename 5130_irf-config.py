@@ -4,21 +4,6 @@ __version__ = '2.6'
 __comments__= 'remi.batist@axez.nl'
 ###     Deploying (IRF-)(iMC-)config and software on HP5130 24/48 Ports (PoE) Switches #########
 
-###     version 1.0: first release (support for 6 members)
-###     version 1.1: adding support for 9 members
-###     version 1.2: compacting script
-###	version 1.3: supporting autodeploy IMC
-###     version 2.0: Changed to deploy with only one 'main' menu
-###	Version 2.1: Bugfixes
-###	Version 2.2: added "How to use the script"
-###	Version 2.3: Changed SNMP Community to support iMC version 7.2
-###			imc_snmpread = 'iMCV5read' -> 'iMCread'
-###			imc_snmpwrite = 'iMCV5write' -> 'iMCwrite'
-###	Version 2.4: Supporting latest firmware
-###	Version 2.5: Adding optional files to download to the switch
-###     Version 2.6: Supporting older firmware releases
-###
-
 ###	How to use de script;
 ###	1) On the HP IMC server(or other tftp-srver), put this script in the "%IMC Install Folder%\server\tmp" folder.
 ###	2) Set the DHCP-Server in the "deploy" network with this script as bootfile. Example on a Comware devices below.
@@ -214,7 +199,6 @@ def StartMenu(memberid, model, mac_address, sw_version, poe_version):
         elif ans=="9":
             print "\nQuiting script and rebooting...\n"
             comware.CLI("reboot force")
-            quit()
         else:
             print("\n Not Valid Choice Try again")
     return checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, checkbox6 ,set_memberid
@@ -333,24 +317,20 @@ def TriggeriMC(checkbox6):
 def Reboot():
 	print "Now rebooting, please wait..."
 	comware.CLI("reboot force")
-	quit()
 
 #### Define main function
 def main():
-    try:
-        (memberid, model, mac_address, sw_version, poe_version) = SwitchInput()
-        (checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, checkbox6 ,set_memberid) = StartMenu(memberid, model, mac_address, sw_version, poe_version)
-        SoftwareUpdate(checkbox1)
-        PoEUpdate(checkbox2, memberid)
-        OptFiles(checkbox3)
-        ChangeIRFMemberID(memberid, checkbox4, set_memberid)
-        SetIRFPorts(memberid, model, checkbox5, set_memberid)
-        TriggeriMC(checkbox6)
-        Reboot()
-    except (EOFError, KeyboardInterrupt):
-        print "\n\nquiting script!!!...."
-        quit()
+    (memberid, model, mac_address, sw_version, poe_version) = SwitchInput()
+    (checkbox1, checkbox2, checkbox3, checkbox4, checkbox5, checkbox6 ,set_memberid) = StartMenu(memberid, model, mac_address, sw_version, poe_version)
+    SoftwareUpdate(checkbox1)
+    PoEUpdate(checkbox2, memberid)
+    OptFiles(checkbox3)
+    ChangeIRFMemberID(memberid, checkbox4, set_memberid)
+    SetIRFPorts(memberid, model, checkbox5, set_memberid)
+    TriggeriMC(checkbox6)
+    Reboot()
 
 if __name__ == "__main__":
     main()
+
 
