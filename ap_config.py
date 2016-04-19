@@ -8,29 +8,26 @@
 # Comments:    remi.batist@axez.nl
 #-------------------------------------------------------------------------------
 #
-# --Pushing config when AP detected with LLDP
-# --Removing config when AP is removed(PoE stops delivering power)
+# Pushing config every 5 minutes when AP detected with LLDP
+# Removing config at 23:00 (when port with description ARUBA-AP is down)
+
+#To configure on the comware switch:
+
+#scheduler job AP-DEPLOY
+# command 1 python ap_config.py deploy
 #
-# Put this script on the switch and configure the switch
-# To configure on the comware switch:
-
-#rtm cli-policy AP-DEPLOY
-# event syslog priority all msg "neighbor created" occurs 1 period 1
-# action 0 syslog priority 6 facility local6 msg "starting AP-configuration"
-# action 1 cli python ap_config.py deploy
-# action 2 syslog priority 6 facility local6 msg "AP-configuration finished"
-# running-time 300
+#scheduler job AP-REMOVE
+# command 1 python ap_config.py remove
+#
+#scheduler schedule AP-DEPLOY
 # user-role network-admin
-# commit
-
-#rtm cli-policy AP-REMOVE
-# event syslog priority all msg "Detection Status 1" occurs 1 period 1
-# action 0 syslog priority 6 facility local6 msg "deleting AP-configuration"
-# action 1 cli python ap_config.py remove
-# action 2 syslog priority 6 facility local6 msg "deleting AP-configuration finished"
-# running-time 300
+# job AP-DEPLOY
+# time repeating interval 5
+#
+#scheduler schedule AP-REMOVE
 # user-role network-admin
-# commit
+# job AP-REMOVE
+# time repeating at 23:00
 
 import comware
 import sys
