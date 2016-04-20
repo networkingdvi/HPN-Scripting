@@ -1,32 +1,32 @@
-
-
-__version__ = '1.3'
-__author__ = 'Remi Batist'
-
-# Version 1.0: Initial version
-# Version 1.3: Allowing more the 10 VLAN's and "to" in the permitvlan column
-
-# Importing interface-settings from pre-defined csv-file
-
-# used row format shown in the example below
+# Auto-deploy port-settings based on csv-file on HPE Comware 7 switches
+#
+#-------------------------------------------------------------------------------
+# Author:      Remi Batist / AXEZ ICT Solutions
+# Version:     2.0
+#
+# Created:     15-04-2016
+# Comments:    remi.batist@axez.nl
+#-------------------------------------------------------------------------------
+#
+# Required row format shown in the example below
 # csv delimiter ' ; '
 
-# interface	                description	linktype		permitvlan     	pvid
-# GigabitEthernet1/0/21	        server-1	access		                	23
-# GigabitEthernet1/0/22	        server-2	trunk	                10 12 to 15     10
+# interface-name        aggregation-number  aggregation-description     interface-description   linktype    permitted-vlan  pvid
+# GigabitEthernet1/0/1  15                  Server-1                    Server-1-nic1           trunk       20 21           20
+# GigabitEthernet1/0/2                                                  server-2                access                      23
+# GigabitEthernet1/0/3                                                  ups-mgmt                access                      15
+# ...
+# GigabitEthernet2/0/1  15                  Server-1                    Server-1-nic2           trunk       20 21           20
+# ...
 
 
-#### Importing python modules
-
-import csv
-import textwrap
-import comware
-import os
+import time
 import sys
+import csv
+import comware
 import termios
 
-#### File input module
-
+#### RAW user-input module
 fd = sys.stdin.fileno();
 new = termios.tcgetattr(fd)
 new[3] = new[3] | termios.ICANON | termios.ECHO
@@ -35,114 +35,165 @@ new[6] [termios.VTIME] = 0
 termios.tcsetattr(fd, termios.TCSANOW, new)
 termios.tcsendbreak(fd,0)
 
-#### Importing file
-def importFile():
-	print ''
-	file_in = raw_input("\nEnter filename to import:  ")
-	print "\n\nStart reading file: " + file_in + ".........."
-	return file_in
-		
-#### Open and read file
-def openFile(file_in):
-	try:
-		fo = open (file_in)
-		reader = csv.DictReader(fo, delimiter=';')
-		fh = list(reader)
-	except IOError as e:
-		print("\nError %d reading file ' %s '\n" % (e.errno, e.filename) )
-		quit()
-	return fh
+class InterfaceConfig():
+
+    def __init__(self):
+        self.config_dict = {}
+        self.bridge_dict = {'desc': [], 'lnk_type': [], 'pvid': [], 'pvln': []}
+        self.counter = 0
+        pass
+
+    def importData(self):
+        myfile = raw_input('Enter filename: ')
+        try:
+            src_file = open(myfile)
+            try:
+                print 'Reading file.....', src_file.name
+                reader = csv.DictReader(src_file, delimiter=';')
+                ### Creating a list of dictionaries
+                self.imported_data = list(reader)
+            finally:
+                print 'Closing file.....', src_file.name
+                src_file.close()
+        except IOError as e:
+            print("\nError %d reading file ' %s '\n" % (e.errno, e.filename) )
+            quit()
+
+    def removeData(self):
+        print "Checking for unconfigured interfaces in data..."
+        for line_number in reversed(range(len(self.imported_data))):
+            if not self.imported_data[line_number]['linktype']:
+                print 'deleting interface', self.imported_data[line_number]['interface-name']
+                del self.imported_data[line_number]
+
+    def checkData(self):
+        print "Checking configured interfaces in data..."
+        for row in self.imported_data:
+            self.counter += 1
+            ##linktype check
+            row['linktype'] = row['linktype'].lower().replace(' ', '')
+            while row['linktype'] and not any ([row['linktype'] == 'access', row['linktype'] == 'trunk']):
+                row['linktype'] = raw_input('Incorrect linktype for  ' + row['interface-name'] + ', enter linktype (access/trunk): ')
+            ##permitvlan check
+            row['permitted-vlan'] = row['permitted-vlan'].replace(",", " ").replace("-", " to ")
+            if row['linktype'] == 'trunk':
+                while not (row['permitted-vlan']):
+                    (row['permitted-vlan']) = raw_input('Permitted-vlan is missing for ' + row['interface-name'] + ':, \nEnter new VLAN (1 - 4096): ')
+                while not unicode(row['permitted-vlan']).replace(' to ', '').replace(' ', '').isdecimal():
+                    (row['permitted-vlan']) = raw_input('Permitted-vlan is incorrect for ' + row['interface-name'] + ':, \nEnter new VLAN (1 - 4096): ')
+            ##pvid check
+            while row['pvid'] and not unicode(row['pvid']).isdecimal():
+                (row['pvid']) = raw_input('PVID is incorrect for ' + row['interface-name'] + ':, \nEnter new PVID (1 - 4096): ')
+            if unicode(row['pvid']).isdecimal() and int(row['pvid']) == 1:
+                (row['pvid']) = ''
+            ##aggregation-number check
+            while row['aggregation-number'] and not unicode(row['aggregation-number']).isdecimal() or unicode(row['aggregation-number']).isdecimal() and int(row['aggregation-number']) > 1024:
+                (row['aggregation-number']) = raw_input('Imported BridgeID is incorrect for ' + row['interface-name'] + ': [' + row['aggregation-number'] + '], \nEnter new BridgeID (1 - 1024): ')
 
 
-#### Process file, creating config lines based on csv-file.
-def processFile(fh):
-	try:
-		numVlans = 0
-		output_list = []
-		item_in_1 = 'interface'
-		item_in_2 = 'description'
-		item_in_3 = 'linktype'
-		item_in_4 = 'permitvlan'
-		item_in_5 = 'pvid'
-		for row in fh:
-			if row[item_in_3] == 'access':
-				linktype = 'port link-type access'
-				set_pvid = 'port access vlan '
-				set_permit =''
-				output_list.append("system ;%s ;%s ;%s ;%s ;%s" % ('interface '+row[item_in_1], 'description ' +row[item_in_2], linktype, set_pvid + row[item_in_5], set_permit + row[item_in_4]))
-			else:
-				linktype = 'port link-type trunk'
-				set_pvid = 'port trunk pvid vlan '
-				set_permit ='port trunk permit vlan '
-				numVlans = len(row[item_in_4].split())
-				splitVlans = ''
-				if numVlans > 10:
-					setVlans = (row[item_in_4].split())
-					for prev,cur,next in zip([None]+setVlans[:-1], setVlans, setVlans[1:]+[None]):
-						numVlans = len(splitVlans.split())
-						if (numVlans == 8 and next == 'to' or numVlans == 9 and next == 'to'):
-							output_list.append("system ;%s ;%s ;%s ;%s ;%s" % ('interface '+row[item_in_1], 'description ' +row[item_in_2], linktype, set_pvid + row[item_in_5], set_permit + splitVlans))
-							splitVlans = ''
-						splitVlans += (cur  + " ")
-						numVlans = len(splitVlans.split())
-						if numVlans == 10:
-							output_list.append("system ;%s ;%s ;%s ;%s ;%s" % ('interface '+row[item_in_1], 'description ' +row[item_in_2], linktype, set_pvid + row[item_in_5], set_permit + splitVlans))
-							splitVlans = ''
-					output_list.append("system ;%s ;%s ;%s ;%s ;%s" % ('interface '+row[item_in_1], 'description ' +row[item_in_2], linktype, set_pvid + row[item_in_5], set_permit + splitVlans))
-				else:
-					output_list.append("system ;%s ;%s ;%s ;%s ;%s" % ('interface '+row[item_in_1], 'description ' +row[item_in_2], linktype, set_pvid + row[item_in_5], set_permit + row[item_in_4]))
-		return output_list
-	except KeyError as k:
-		print "\nRow-name ", k, " could not be identified, please check your csv-file\n"
-		sys.exit("Quiting script!\n")
+    def prepareInterface(self):
+        for row in self.imported_data:
+            try:
+                if unicode(row['aggregation-number']).isdecimal() and self.config_dict[('Bridge-Aggregation ' + row['aggregation-number'])]:
+                    print 'Bridge-aggregation already exists', row['aggregation-number']
+                    self.config_dict.setdefault(row['interface-name'],[]).append('default ; ' + 'port link-aggregation group ' + row['aggregation-number'])
+            except KeyError:
+                print 'Creating Bridge-aggregation', row['aggregation-number']
+                self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append('default ; link-aggregation mode dynamic')
+                self.config_dict.setdefault(row['interface-name'],[]).append('default ; ' + 'port link-aggregation group ' + row['aggregation-number'])
+            if not row['aggregation-number']:
+                self.config_dict.setdefault(row['interface-name'],[]).append('default')
 
-#### Deploy config-lines
-def deployConfig(output_list):
-	failures = 0
-	fail_list = []
-	for i in output_list:
-		print "\nDeploying Configuration....\n"
-		try:
-			comware.CLI(i)
-			print "\nInterface configuration successful\n"
-		except SystemError as s:
-			try:
-				failures += 1
-				fail_list.append(i)
-				print "\nA part of the interface configuration failed, please check your csv-file or switch-config\n"
-				raw_input("Press Enter to continue or CTRL-D to abort the deployment")
-			except EOFError:
-				sys.exit("\nQuiting script!\n")
-			except KeyboardInterrupt:
-				sys.exit("\nQuiting script!\n")
-	return failures, fail_list
 
-#### Print end result
-def result(failures, fail_list):
-	if failures > 0:
-		print "\n\nDeployment partially completed"
-		print "\nItems failed: ", failures, "\n"
-		for index, item in enumerate(fail_list):
-			print (index + 1),":", item
+    def processDescription(self):
+        for row in self.imported_data:
+            if row['aggregation-description']:
+                if unicode(row['aggregation-number']).isdecimal() and not ('Bridge-Aggregation ' + row['aggregation-number'] in self.bridge_dict['desc']):
+                    self.bridge_dict.setdefault('desc',[]).append('Bridge-Aggregation ' + row['aggregation-number'])
+                    self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append('description ' + row['aggregation-description'])
+            if row['interface-description']:
+                self.config_dict.setdefault(row['interface-name'],[]).append('description ' + row['interface-description'])
 
-	else:
-		print "\n\nDeployment completed succesfuly"
-		
-#### Define main function
+    def processLinktype(self):
+        for row in self.imported_data:
+            if unicode(row['aggregation-number']).isdecimal() and not ('Bridge-Aggregation ' + row['aggregation-number'] in self.bridge_dict['lnk_type']):
+                self.bridge_dict.setdefault('lnk_type',[]).append('Bridge-Aggregation ' + row['aggregation-number'])
+                self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append('port link-type ' + row['linktype'])
+            self.config_dict.setdefault(row['interface-name'],[]).append('port link-type ' + row['linktype'])
+
+    def processPVID(self):
+        for row in self.imported_data:
+            if row['linktype'] == 'trunk':
+                if unicode(row['pvid']).isdecimal():
+                    pvid_command = 'port trunk pvid vlan '
+                else:
+                    pvid_command = 'port trunk pvid vlan 1'
+            if row['linktype'] == 'access':
+                if unicode(row['pvid']).isdecimal():
+                    pvid_command = 'port access vlan '
+                else:
+                    pvid_command = 'undo port access vlan'
+            if unicode(row['aggregation-number']).isdecimal() and not ('Bridge-Aggregation ' + row['aggregation-number'] in self.bridge_dict['pvid']):
+                self.bridge_dict.setdefault('pvid',[]).append('Bridge-Aggregation ' + row['aggregation-number'])
+                self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append(pvid_command + row['pvid'])
+            self.config_dict.setdefault(row['interface-name'],[]).append(pvid_command + row['pvid'])
+
+    def processPermitvlan(self):
+        for row in self.imported_data:
+            finalSplit = tempSplit = ''
+            if row['linktype'] == 'trunk':
+                countVlans = len(row['permitted-vlan'].split())
+                if countVlans > 10:
+                    sortVlans = (row['permitted-vlan'].split())
+                    for prev,cur,next in zip([None]+sortVlans[:-1], sortVlans, sortVlans[1:]+[None]):
+                        countVlans = len(tempSplit.split())
+                        if (countVlans == 8 and next == 'to' or countVlans == 9 and next == 'to'):
+                            finalSplit += ("; port trunk permit vlan " + str(tempSplit))
+                            tempSplit = ''
+                        tempSplit += (cur  + " ")
+                        countVlans = len(tempSplit.split())
+                        if countVlans == 10:
+                            finalSplit += ("; port trunk permit vlan " + str(tempSplit))
+                            tempSplit = ''
+                    if countVlans > 0:
+                        finalSplit += ("; port trunk permit vlan " + str(tempSplit))
+                else:
+                    finalSplit += ("port trunk permit vlan " + row['permitted-vlan'])
+                if unicode(row['aggregation-number']).isdecimal() and not ('Bridge-Aggregation ' + row['aggregation-number'] in self.bridge_dict['pvln']):
+                    self.bridge_dict.setdefault('pvln',[]).append('Bridge-Aggregation ' + row['aggregation-number'])
+                    self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append(str(finalSplit))
+                    if ' 1 ' not in row['permitted-vlan']:
+                        self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append('undo port trunk permit vlan 1')
+                self.config_dict.setdefault(row['interface-name'],[]).append(str(finalSplit))
+                if ' 1 ' not in row['permitted-vlan']:
+                    self.config_dict.setdefault(row['interface-name'],[]).append('undo port trunk permit vlan 1')
+
+    def deployConfig(self):
+        for interface in sorted(self.config_dict):
+            finalConfig = ''
+            for config in self.config_dict[interface]:
+                finalConfig += ' ; ' +config
+            comware.CLI('system ; interface ' + interface + finalConfig)
+            #print ('system ; interface ' + interface + finalConfig)
+        print '\n#### ', self.counter, 'interfaces configured! ####'
+
+
 def main():
-	file_in = importFile()
-	fh = openFile(file_in)
-	(output_list) = processFile(fh)
-	(failures, fail_list) = deployConfig(output_list)
-	result(failures, fail_list)
-	
-			
+    try:
+        ifc = InterfaceConfig()
+        ifc.importData()
+        ifc.removeData()
+        ifc.checkData()
+        ifc.prepareInterface()
+        ifc.processDescription()
+        ifc.processLinktype()
+        ifc.processPVID()
+        ifc.processPermitvlan()
+        ifc.deployConfig()
+    except (EOFError, KeyboardInterrupt):
+        print "\n\nquiting script!!!...."
+        quit()
+
 if __name__ == "__main__":
 	main()
-
-		
-		
-		
-
-
 
