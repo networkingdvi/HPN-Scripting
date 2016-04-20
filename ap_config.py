@@ -33,6 +33,7 @@ import comware
 import sys
 
 # Support for max 6 lines per config-part
+# always start with 'default' and end with 'poe enable' in the ap-config!
 
 ap_config_part1 =   "\ndefault" \
                     "\nport link-type trunk"\
