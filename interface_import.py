@@ -2,9 +2,9 @@
 #
 #-------------------------------------------------------------------------------
 # Author:      Remi Batist / AXEZ ICT Solutions
-# Version:     2.0
+# Version:     2.1
 #
-# Created:     15-04-2016
+# Created:     26-04-2016
 # Comments:    remi.batist@axez.nl
 #-------------------------------------------------------------------------------
 #
@@ -19,12 +19,11 @@
 # GigabitEthernet2/0/1  15                  Server-1                    Server-1-nic2           trunk       20 21           20
 # ...
 
-
-import time
 import sys
 import csv
 import comware
 import termios
+import re
 
 #### RAW user-input module
 fd = sys.stdin.fileno();
@@ -162,10 +161,10 @@ class InterfaceConfig():
                 if unicode(row['aggregation-number']).isdecimal() and not ('Bridge-Aggregation ' + row['aggregation-number'] in self.bridge_dict['pvln']):
                     self.bridge_dict.setdefault('pvln',[]).append('Bridge-Aggregation ' + row['aggregation-number'])
                     self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append(str(finalSplit))
-                    if ' 1 ' not in row['permitted-vlan']:
+                    if not re.findall('\\b'+'1'+'\\b', row['permitted-vlan']):
                         self.config_dict.setdefault('Bridge-Aggregation ' + row['aggregation-number'],[]).append('undo port trunk permit vlan 1')
                 self.config_dict.setdefault(row['interface-name'],[]).append(str(finalSplit))
-                if ' 1 ' not in row['permitted-vlan']:
+                if not re.findall('\\b'+'1'+'\\b', row['permitted-vlan']):
                     self.config_dict.setdefault(row['interface-name'],[]).append('undo port trunk permit vlan 1')
 
     def deployConfig(self):
@@ -174,7 +173,6 @@ class InterfaceConfig():
             for config in self.config_dict[interface]:
                 finalConfig += ' ; ' +config
             comware.CLI('system ; interface ' + interface + finalConfig)
-            #print ('system ; interface ' + interface + finalConfig)
         print '\n#### ', self.counter, 'interfaces configured! ####'
 
 
