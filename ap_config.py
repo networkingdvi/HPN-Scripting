@@ -40,29 +40,16 @@ import sys
 ap_config_part1 =   "\ndefault" \
                     "\nport link-type trunk"\
                     "\nundo port trunk permit vlan 1"\
-                    "\nport trunk permit vlan 21 40 to 45"\
+                    "\nport trunk permit vlan 2 4 21"\
                     "\nport trunk pvid vlan 21"\
                     "\npoe enable"
 ap_config_part2 =   ""
 
 default_config_part1 =  "\ndefault" \
-                        "\ndescription vi-access-port" \
-                        "\nundo enable snmp trap updown" \
-                        "\nport link-type hybrid" \
-                        "\nport hybrid vlan 1 untagged" \
-                        "\nmac-vlan enable" \
-                        "\npoe enable" \
-                        "\nundo dot1x handshake"
+                        "\ndescription pc-port" \
+                        "\npoe enable"
 
-default_config_part2 =  "\nundo dot1x multicast-trigger" \
-                        "\ndot1x critical vlan 666" \
-                        "\ndot1x re-authenticate server-unreachable keep-online" \
-                        "\nmac-authentication re-authenticate server-unreachable keep-online" \
-                        "\nmac-authentication guest-vlan 36" \
-                        "\nmac-authentication guest-vlan auth-period 300" \
-                        "\nmac-authentication critical vlan 666" \
-                        "\nport-security port-mode userlogin-secure-or-mac-ext" \
-                        "\nloopback-detection action shutdown"
+default_config_part2 =  ""
 
 def config(argument):
     if argument == "deploy":
